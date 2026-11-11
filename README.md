@@ -13,8 +13,8 @@ The schedule is public. Marking talks, notes and "My talks" need sign-in
 
 1. In Auth0, create a Single Page Application (or reuse one) and add
    `https://tnguyen14.github.io/conf/kubecon-2026/` and
-   `http://localhost:5173/kubecon-2026/` to Allowed Callback URLs and Allowed
-   Logout URLs, and `https://tnguyen14.github.io` and `http://localhost:5173`
+   `http://localhost:4005/kubecon-2026/` to Allowed Callback URLs and Allowed
+   Logout URLs, and `https://tnguyen14.github.io` and `http://localhost:4005`
    to Allowed Web Origins.
 2. Set the app's client ID as the repo variable `AUTH0_CLIENT_ID`
    (Settings → Secrets and variables → Actions → Variables).
