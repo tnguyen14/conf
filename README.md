@@ -2,7 +2,7 @@
 
 Schedule planners for conferences I attend, published with GitHub Pages.
 
-- [KubeCon + CloudNativeCon NA 2026](https://tridnguyen.com/conf/kubecon-2026/) (`kubecon-2026/`)
+- [KubeCon + CloudNativeCon NA 2026](https://tridnguyen.com/conf/kubecon-na-2026/) (`kubecon-na-2026/`)
 
 Each conference is a static page under its own sub path, built with Vite.
 The schedule is public. Marking talks, notes and "My talks" need sign-in
