@@ -24,10 +24,8 @@ are created by a super admin), and the lists API must allow this site's origin
 Sign-in uses the "Auth" SPA application in Auth0 (`IxcfVZqCVF9b5FS2NVVnElOeBnoNG02Z`)
 (client ID in `lib/auth.js`). Its settings need:
 
-- Allowed Callback URLs and Allowed Logout URLs:
-  `https://tridnguyen.com/conf/`,
-  `http://localhost:4005/`
-- Allowed Web Origins: `https://tridnguyen.com`, `http://localhost:4005`
+- Allowed Callback URLs and Allowed Logout URLs: `https://tridnguyen.com/conf/`
+- Allowed Web Origins: `https://tridnguyen.com`
 
 The site root (`index.html`) is the callback and logout page for every
 conference: it finishes the redirect and sends you back to the page you came
@@ -51,12 +49,6 @@ npm run pull -- kubecon-na-2026
 
 Talks are keyed by their Sessionize session ID, so a refresh that changes a
 talk's time, room or title keeps its marks and notes.
-
-```sh
-npm install
-npm run dev     # local dev server
-npm run build   # static output in dist/
-```
 
 Pushes to `main` build and deploy via GitHub Actions
 (`.github/workflows/deploy.yml`).
