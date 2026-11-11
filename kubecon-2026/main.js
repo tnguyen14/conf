@@ -119,7 +119,7 @@ function setSync(cls, text) {
 function applyAuth() {
   document.body.classList.toggle("signed-in", signedIn);
   const btn = document.getElementById("authBtn");
-  btn.hidden = !(auth && auth.configured);
+  btn.hidden = !auth;
   btn.textContent = signedIn ? "Sign out" : "Sign in";
   if (!signedIn) {
     view = "all";
@@ -137,9 +137,7 @@ async function startAuth() {
     return;
   }
   signedIn = !!auth.user;
-  if (!auth.configured) {
-    setSync("err", "Sign-in isn’t set up · marks and notes are off");
-  } else if (signedIn) {
+  if (signedIn) {
     const who = auth.user.name || auth.user.email || "you";
     setSync(
       "ok",
@@ -153,7 +151,7 @@ async function startAuth() {
   render();
 }
 document.getElementById("authBtn").addEventListener("click", () => {
-  if (!auth || !auth.configured) return;
+  if (!auth) return;
   if (signedIn) auth.logout();
   else auth.login();
 });

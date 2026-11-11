@@ -11,17 +11,13 @@ The schedule is public. Marking talks, notes and "My talks" need sign-in
 
 ## Auth setup
 
-1. In Auth0, create a Single Page Application (or reuse one) and add
-   `https://tnguyen14.github.io/conf/kubecon-2026/` and
-   `http://localhost:4005/kubecon-2026/` to Allowed Callback URLs and Allowed
-   Logout URLs, and `https://tnguyen14.github.io` and `http://localhost:4005`
-   to Allowed Web Origins.
-2. Set the app's client ID as the repo variable `AUTH0_CLIENT_ID`
-   (Settings → Secrets and variables → Actions → Variables).
-3. For local dev, put `VITE_AUTH0_CLIENT_ID=<client id>` in `.env.local`.
+Sign-in uses the Auth0 SPA application `IxcfVZqCVF9b5FS2NVVnElOeBnoNG02Z`
+(client ID in `lib/auth.js`). Its settings need:
 
-Without a client ID, the build still works, but sign-in (and so marking and
-notes) is off.
+- Allowed Callback URLs and Allowed Logout URLs:
+  `https://tnguyen14.github.io/conf/kubecon-2026/`,
+  `http://localhost:4005/kubecon-2026/`
+- Allowed Web Origins: `https://tnguyen14.github.io`, `http://localhost:4005`
 
 ```sh
 npm install
