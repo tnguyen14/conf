@@ -1,0 +1,40 @@
+name: Pull schedule from Sessionize
+
+on:
+  workflow_dispatch:
+    inputs:
+      conference:
+        description: Conference folder to update
+        required: true
+        default: kubecon-na-2026
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: pull-schedule
+  cancel-in-progress: false
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    env:
+      CONFERENCE: ${{ inputs.conference }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/pull-sessionize.js "$CONFERENCE"
+      - id: commit
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: Update ${{ env.CONFERENCE }} schedule from Sessionize
+          file_pattern: ${{ env.CONFERENCE }}/schedule.json
+      # Pushes made with GITHUB_TOKEN don't trigger other workflows, so start
+      # the deploy explicitly.
+      - if: steps.commit.outputs.changes_detected == 'true' && github.ref_name == 'main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --ref main
