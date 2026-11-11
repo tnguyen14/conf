@@ -1057,3 +1057,27 @@ body.np-open .dp {
 .mrow .tlink {
   font-size: 0.95rem;
 }
+
+/* ---------- sign-in ---------- */
+.acct {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.acct .sync {
+  margin-top: 0;
+}
+.acct .xbtn {
+  padding: 4px 10px;
+}
+/* Signed out: the schedule stays readable; marking, notes and My talks are hidden. */
+body:not(.signed-in) .marks,
+body:not(.signed-in) .nbtn,
+body:not(.signed-in) .badge,
+body:not(.signed-in) #tab-mine,
+body:not(.signed-in) #tab-gen,
+body:not(.signed-in) #viewSeg {
+  display: none;
+}
