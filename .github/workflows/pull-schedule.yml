@@ -7,9 +7,6 @@ on:
         description: Conference folder to update
         required: true
         default: kubecon-na-2026
-  # To refresh automatically during a conference, uncomment (times are UTC):
-  # schedule:
-  #   - cron: "17 * * * *"
 
 permissions:
   contents: write
@@ -23,27 +20,21 @@ jobs:
   pull:
     runs-on: ubuntu-latest
     env:
-      CONFERENCE: ${{ inputs.conference || 'kubecon-na-2026' }}
+      CONFERENCE: ${{ inputs.conference }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: node scripts/pull-sessionize.js "$CONFERENCE"
-      - name: Commit and deploy if the schedule changed
+      - id: commit
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: Update ${{ env.CONFERENCE }} schedule from Sessionize
+          file_pattern: ${{ env.CONFERENCE }}/schedule.json
+      # Pushes made with GITHUB_TOKEN don't trigger other workflows, so start
+      # the deploy explicitly.
+      - if: steps.commit.outputs.changes_detected == 'true' && github.ref_name == 'main'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          if git diff --quiet; then
-            echo "No schedule changes."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "Update $CONFERENCE schedule from Sessionize"
-          git push
-          # Pushes made with GITHUB_TOKEN don't trigger other workflows,
-          # so start the deploy explicitly.
-          if [ "$GITHUB_REF_NAME" = "main" ]; then
-            gh workflow run deploy.yml --ref main
-          fi
+        run: gh workflow run deploy.yml --ref main
