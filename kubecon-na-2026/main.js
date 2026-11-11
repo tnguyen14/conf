@@ -7,9 +7,14 @@ import "@fontsource/jetbrains-mono/500.css";
 import "@fontsource/jetbrains-mono/700.css";
 import "./style.css";
 import { initAuth } from "../lib/auth.js";
-import { NOTES_TUE, NOTES_WED, NOTES_THU, TRACKS, ORDER } from "./data.js";
+import {
+  NOTES_TUE,
+  NOTES_WED,
+  NOTES_THU,
+  TRACKS,
+  ORDER,
+} from "./conference-data.js";
 import schedule from "./schedule.json";
-import LEGACY_IDS from "./legacy-ids.json";
 
 const DESC = schedule.desc;
 
@@ -60,18 +65,6 @@ DAYS.forEach((d) => {
   }));
 });
 
-// Talk ids used to be built from time, track and title. They are now
-// Sessionize session ids; move marks and notes saved under the old ids.
-function migrateIds(obj) {
-  let changed = false;
-  for (const [old, id] of Object.entries(LEGACY_IDS)) {
-    if (!(old in obj)) continue;
-    if (!(id in obj)) obj[id] = obj[old];
-    delete obj[old];
-    changed = true;
-  }
-  return changed;
-}
 const ALL = DAYS.flatMap((d) => d.S);
 const BYID = Object.fromEntries(ALL.map((s) => [s.id, s]));
 
@@ -97,7 +90,6 @@ const saveLocal = () => {
     localStorage.setItem("kc-tue-sel", JSON.stringify([...sel]));
   } catch (e) {}
 };
-if (migrateIds(marks)) saveLocal();
 // Marks and notes are kept in this browser (localStorage); there is no cross-device sync.
 function save() {
   saveLocal();
@@ -596,11 +588,6 @@ function startNotes() {
       throw { code: "quota_exceeded" };
     }
   };
-  if (migrateIds(notes)) {
-    try {
-      persist();
-    } catch (e) {}
-  }
   notesCol = {
     doc: (id) => ({
       set: async (v) => {

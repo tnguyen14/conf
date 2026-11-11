@@ -111,7 +111,7 @@ for (const s of feed.sessions) {
     itemsOf(s, config.levelCategory)[0] ?? "",
     fmt,
   ]);
-  if (s.description) desc[s.id] = s.description.trim();
+  if (s.description) desc[s.id] = s.description.replace(/\r\n/g, "\n").trim();
   seen.add(s.id);
 }
 

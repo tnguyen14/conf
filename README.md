@@ -29,7 +29,7 @@ Each conference's talks, keynotes and descriptions come from Sessionize and
 are stored in `<conference>/schedule.json`, which is bundled into the page.
 What gets included (tracks, formats, extra sessions) is set in
 `<conference>/sessionize.config.js`. Break banners and track colors are
-hand-written in `<conference>/data.js`.
+hand-written in `<conference>/conference-data.js`.
 
 To refresh a schedule, run the **Pull schedule from Sessionize** workflow
 (Actions tab → Run workflow). It commits `schedule.json` only if something
