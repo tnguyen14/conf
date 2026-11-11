@@ -15,9 +15,13 @@ Sign-in uses the "Auth" SPA application in Auth0 (`IxcfVZqCVF9b5FS2NVVnElOeBnoNG
 (client ID in `lib/auth.js`). Its settings need:
 
 - Allowed Callback URLs and Allowed Logout URLs:
-  `https://tridnguyen.com/conf/kubecon-2026/`,
-  `http://localhost:4005/kubecon-2026/`
+  `https://tridnguyen.com/conf/`,
+  `http://localhost:4005/`
 - Allowed Web Origins: `https://tridnguyen.com`, `http://localhost:4005`
+
+The site root (`index.html`) is the callback and logout page for every
+conference: it finishes the redirect and sends you back to the page you came
+from. A new conference needs no Auth0 changes.
 
 ```sh
 npm install
