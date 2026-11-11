@@ -7,20 +7,11 @@ import "@fontsource/jetbrains-mono/500.css";
 import "@fontsource/jetbrains-mono/700.css";
 import "./style.css";
 import { initAuth } from "../lib/auth.js";
-import {
-  KEY_TUE,
-  S_TUE,
-  NOTES_TUE,
-  KEY_WED,
-  NOTES_WED,
-  S_WED,
-  KEY_THU,
-  NOTES_THU,
-  S_THU,
-  DESC,
-  TRACKS,
-  ORDER,
-} from "./data.js";
+import { NOTES_TUE, NOTES_WED, NOTES_THU, TRACKS, ORDER } from "./data.js";
+import schedule from "./schedule.json";
+import LEGACY_IDS from "./legacy-ids.json";
+
+const DESC = schedule.desc;
 
 const pad = (t) => (t.length === 4 ? "0" + t : t);
 const DAYS = [
@@ -29,54 +20,58 @@ const DAYS = [
     date: "2026-11-10",
     label: "Tue",
     long: "Tuesday, Nov 10",
-    key: KEY_TUE,
+    key: schedule.days.tue.keynotes,
     notes: NOTES_TUE,
-    rows: S_TUE,
-    pre: "",
+    rows: schedule.days.tue.sessions,
   },
   {
     k: "wed",
     date: "2026-11-11",
     label: "Wed",
     long: "Wednesday, Nov 11",
-    key: KEY_WED,
+    key: schedule.days.wed.keynotes,
     notes: NOTES_WED,
-    rows: S_WED,
-    pre: "w",
+    rows: schedule.days.wed.sessions,
   },
   {
     k: "thu",
     date: "2026-11-12",
     label: "Thu",
     long: "Thursday, Nov 12",
-    key: KEY_THU,
+    key: schedule.days.thu.keynotes,
     notes: NOTES_THU,
-    rows: S_THU,
-    pre: "h",
+    rows: schedule.days.thu.sessions,
   },
 ];
 DAYS.forEach((d) => {
   d.key.forEach((k) => (k[0] = pad(k[0])));
-  d.S = d.rows
-    .map((r) => ({
-      t: pad(r[0]),
-      e: pad(r[1]),
-      tr: r[2],
-      title: r[3],
-      sp: r[4],
-      room: r[5],
-      lvl: r[6],
-      fmt: r[7],
-      day: d.k,
-    }))
-    .filter((s) => s.tr !== "H" && !/^Tutorial/.test(s.fmt));
-  // Tuesday ids stay compatible with earlier versions of this page
-  d.S.forEach((s) => {
-    s.id =
-      d.pre +
-      (s.t.replace(/^0/, "") + s.tr + s.title).replace(/\W/g, "").slice(0, 40);
-  });
+  // [Sessionize id, start, end, track, title, speakers, room, level, format]
+  d.S = d.rows.map((r) => ({
+    id: r[0],
+    t: pad(r[1]),
+    e: pad(r[2]),
+    tr: r[3],
+    title: r[4],
+    sp: r[5],
+    room: r[6],
+    lvl: r[7],
+    fmt: r[8],
+    day: d.k,
+  }));
 });
+
+// Talk ids used to be built from time, track and title. They are now
+// Sessionize session ids; move marks and notes saved under the old ids.
+function migrateIds(obj) {
+  let changed = false;
+  for (const [old, id] of Object.entries(LEGACY_IDS)) {
+    if (!(old in obj)) continue;
+    if (!(id in obj)) obj[id] = obj[old];
+    delete obj[old];
+    changed = true;
+  }
+  return changed;
+}
 const ALL = DAYS.flatMap((d) => d.S);
 const BYID = Object.fromEntries(ALL.map((s) => [s.id, s]));
 
@@ -102,6 +97,7 @@ const saveLocal = () => {
     localStorage.setItem("kc-tue-sel", JSON.stringify([...sel]));
   } catch (e) {}
 };
+if (migrateIds(marks)) saveLocal();
 // Marks and notes are kept in this browser (localStorage); there is no cross-device sync.
 function save() {
   saveLocal();
@@ -600,6 +596,11 @@ function startNotes() {
       throw { code: "quota_exceeded" };
     }
   };
+  if (migrateIds(notes)) {
+    try {
+      persist();
+    } catch (e) {}
+  }
   notesCol = {
     doc: (id) => ({
       set: async (v) => {

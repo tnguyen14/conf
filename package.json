@@ -8,7 +8,8 @@
     "preview": "vite preview",
     "format": "prettier --write .",
     "lint": "prettier --check .",
-    "prepare": "husky"
+    "prepare": "husky",
+    "pull": "node scripts/pull-sessionize.js"
   },
   "lint-staged": {
     "*": "prettier --ignore-unknown --write"
