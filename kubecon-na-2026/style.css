@@ -169,12 +169,6 @@ header h1 {
   margin: 0;
   text-wrap: balance;
 }
-header p {
-  margin: 0.35rem 0 0;
-  color: var(--muted);
-  font-size: 0.9rem;
-  max-width: 75ch;
-}
 body::before {
   content: "";
   position: fixed;
