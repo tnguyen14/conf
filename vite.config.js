@@ -15,8 +15,6 @@ export default defineConfig({
           import.meta.dirname,
           "kubecon-na-2026/index.html",
         ),
-        // Redirect from the old path.
-        "kubecon-2026": resolve(import.meta.dirname, "kubecon-2026/index.html"),
       },
     },
   },
