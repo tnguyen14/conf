@@ -7,6 +7,7 @@ import "@fontsource/jetbrains-mono/500.css";
 import "@fontsource/jetbrains-mono/700.css";
 import "./style.css";
 import { initAuth } from "../lib/auth.js";
+import { createListClient } from "../lib/lists.js";
 import {
   NOTES_TUE,
   NOTES_WED,
@@ -74,42 +75,34 @@ let marks = {},
   tab = null,
   mineView = "all";
 try {
-  const m = localStorage.getItem("kc-tue-marks");
-  if (m) marks = JSON.parse(m);
-  else
-    JSON.parse(localStorage.getItem("kc-tue-picks") || "[]").forEach(
-      (id) => (marks[id] = "go"),
-    );
+  sel = new Set(JSON.parse(localStorage.getItem("kc-tracks") || "[]"));
 } catch (e) {}
-try {
-  localStorage.removeItem("kc-tue-sel");
-} catch (e) {}
+// Only the track filter stays in the browser. Marks and notes live in the
+// lists API (see "storage" below).
 const saveLocal = () => {
   try {
-    localStorage.setItem("kc-tue-marks", JSON.stringify(marks));
-    localStorage.setItem("kc-tue-sel", JSON.stringify([...sel]));
+    localStorage.setItem("kc-tracks", JSON.stringify([...sel]));
   } catch (e) {}
 };
-// Marks and notes are kept in this browser (localStorage); there is no cross-device sync.
-function save() {
-  saveLocal();
-}
 
 // ---------- sign-in ----------
-// The schedule is public. Marking talks, notes and "My talks" need sign-in.
-let signedIn = false;
+// The schedule is public. Marking talks, notes and "My talks" need sign-in,
+// and only work once your saved marks and notes have loaded.
 let auth = null;
-function setSync(cls, text) {
+let who = "";
+let ready = false;
+function setSync(cls, text, action) {
   const el = document.getElementById("sync");
   el.className = "sync " + cls;
   el.textContent = text;
-}
-function applyAuth() {
-  document.body.classList.toggle("signed-in", signedIn);
   const btn = document.getElementById("authBtn");
   btn.hidden = !auth;
-  btn.textContent = signedIn ? "Sign out" : "Sign in";
-  if (!signedIn) {
+  btn.textContent = action || (auth && auth.user ? "Sign out" : "Sign in");
+  btn.dataset.action = action ? "retry" : auth && auth.user ? "out" : "in";
+}
+function applyAuth() {
+  document.body.classList.toggle("signed-in", ready);
+  if (!ready) {
     view = "all";
     if (openId) closeNotes();
   }
@@ -124,24 +117,175 @@ async function startAuth() {
     setSync("err", "Couldn’t check sign-in · reload to try again");
     return;
   }
-  signedIn = !!auth.user;
-  if (signedIn) {
-    const who = auth.user.name || auth.user.email || "you";
-    setSync(
-      "ok",
-      `Signed in as ${who} · marks and notes are saved in this browser`,
-    );
+  if (auth.user) {
+    who = auth.user.name || auth.user.email || "you";
+    store = createListClient({ ...LIST, getToken: auth.getToken });
+    await loadItems();
   } else {
     setSync("", "Sign in to mark talks and take notes");
+    applyAuth();
+    readHash();
+    render();
   }
-  applyAuth();
-  readHash();
+}
+document.getElementById("authBtn").addEventListener("click", (e) => {
+  if (!auth) return;
+  const action = e.currentTarget.dataset.action;
+  if (action === "retry") loadItems();
+  else if (action === "out") {
+    if (dirty.size || saving) flush();
+    auth.logout();
+  } else auth.login();
+});
+
+// ---------- storage: the lists API ----------
+// One list per conference; one item per talk with a mark or a note:
+// { id: <Sessionize id or "general">, mark: "go" | "later" | null, note, updatedAt }
+const LIST = { type: "conf", name: "kubecon-na-2026" };
+let store = null;
+const dirty = new Set(); // ids changed here and not yet saved
+let saving = false;
+let saveError = null;
+let retries = 0;
+let flushTimer = null;
+let savedAt = null;
+
+const clockTime = (d) =>
+  d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+function syncState() {
+  if (saveError)
+    return {
+      cls: "err",
+      text: "Not saved yet · retrying. Keep this page open",
+    };
+  if (saving || dirty.size) return { cls: "busy", text: "Saving…" };
+  return {
+    cls: "ok",
+    text: savedAt ? `Saved · ${clockTime(savedAt)}` : "Saved to your account",
+  };
+}
+function paintSync() {
+  if (!ready) return;
+  const st = syncState();
+  setSync(st.cls, `Signed in as ${who} · ${st.text}`);
+  paintStatus();
+}
+
+function loadError(e) {
+  if (
+    e &&
+    e.error &&
+    /login_required|consent_required|missing_refresh_token|invalid_grant/.test(
+      e.error,
+    )
+  )
+    return ["Your sign-in expired · sign in again", "Sign in again", "login"];
+  if (e && e.status === 401)
+    return [`${who} can’t use the planner’s list (${LIST.type}/${LIST.name})`];
+  if (e && e.status === 400)
+    return [`The ${LIST.type}/${LIST.name} list doesn’t exist yet`];
+  return ["Couldn’t load your marks and notes", "Retry"];
+}
+async function loadItems({ quiet = false } = {}) {
+  if (!quiet)
+    setSync("busy", `Signed in as ${who} · Loading your marks and notes…`);
+  let items;
+  try {
+    items = await store.getItems();
+  } catch (e) {
+    console.error("Loading items failed", e);
+    if (quiet) return;
+    const [text, action, kind] = loadError(e);
+    ready = false;
+    applyAuth();
+    setSync("err", text, action);
+    if (kind === "login")
+      document.getElementById("authBtn").dataset.action = "in";
+    readHash();
+    render();
+    return;
+  }
+  // Keep anything changed here that hasn't been saved yet.
+  const next = { marks: {}, notes: {} };
+  for (const it of items || []) {
+    if (it.mark) next.marks[it.id] = it.mark;
+    if (it.note) next.notes[it.id] = it.note;
+  }
+  for (const id of dirty) {
+    if (marks[id]) next.marks[id] = marks[id];
+    else delete next.marks[id];
+    if (notes[id]) next.notes[id] = notes[id];
+    else delete next.notes[id];
+  }
+  if (quiet && openId) next.notes[openId] = notes[openId]; // don't swap text under the cursor
+  marks = next.marks;
+  for (const k of Object.keys(notes)) delete notes[k];
+  Object.assign(notes, next.notes);
+  const first = !ready;
+  ready = true;
+  if (first) {
+    applyAuth();
+    readHash();
+  }
+  paintSync();
   render();
 }
-document.getElementById("authBtn").addEventListener("click", () => {
-  if (!auth) return;
-  if (signedIn) auth.logout();
-  else auth.login();
+
+function itemFor(id) {
+  const mark = marks[id] || null;
+  const note = notes[id] || "";
+  if (!mark && !note.trim()) return null;
+  return { id, mark, note, updatedAt: new Date().toISOString() };
+}
+function queueSave(id, delay = 600) {
+  dirty.add(id);
+  clearTimeout(flushTimer);
+  flushTimer = setTimeout(flush, delay);
+  paintSync();
+}
+async function flush() {
+  clearTimeout(flushTimer);
+  if (saving || !store || !dirty.size) return;
+  saving = true;
+  const ids = [...dirty];
+  dirty.clear();
+  paintSync();
+  const put = [];
+  const del = [];
+  for (const id of ids) {
+    const item = itemFor(id);
+    if (item) put.push(item);
+    else del.push(id);
+  }
+  try {
+    if (put.length) await store.putItems(put);
+    await Promise.all(
+      del.map((id) =>
+        store.deleteItem(id).catch((e) => {
+          if (e.status !== 404) throw e;
+        }),
+      ),
+    );
+    saveError = null;
+    retries = 0;
+    savedAt = new Date();
+  } catch (e) {
+    console.error("Saving failed", e);
+    for (const id of ids) dirty.add(id);
+    saveError = e;
+    retries++;
+    flushTimer = setTimeout(flush, Math.min(30000, 2000 * retries));
+  } finally {
+    saving = false;
+    paintSync();
+    if (dirty.size && !saveError) flush();
+  }
+}
+// Pick up changes made on another device when coming back to this tab.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && ready && !dirty.size && !saving)
+    loadItems({ quiet: true });
 });
 const mins = (t) => {
   const [h, m] = t.split(":").map(Number);
@@ -189,9 +333,7 @@ function defaultTab() {
 function readHash() {
   const h = location.hash.slice(1);
   tab =
-    DAYS.some((d) => d.k === h) || (h === "mine" && signedIn)
-      ? h
-      : defaultTab();
+    DAYS.some((d) => d.k === h) || (h === "mine" && ready) ? h : defaultTab();
 }
 
 function tabs() {
@@ -324,11 +466,7 @@ function renderMine(list) {
         ? hasNotes(s.id)
         : marks[s.id] === mineView;
   const any = ALL.some(want);
-  const g = hasNotes("general")
-    ? pend.general
-      ? pend.general.text
-      : notes.general
-    : "";
+  const g = hasNotes("general") ? notes.general : "";
   const gen = `<section class="gen"><div class="gen-h"><h2>General notes</h2><button class="nbtn gen-b${g ? " has" : ""}" id="nb-general" data-note="general">${g ? "Edit" : "Add general notes"}</button></div>${g ? notesHTML(g) : `<p class="gen-empty">Notes that aren’t about one talk: hallway conversations, booths to revisit, people to follow up with, takeaways for your team.</p>`}</section>`;
   if (!any) {
     list.innerHTML =
@@ -359,7 +497,7 @@ function renderMine(list) {
                 mins(o.t) < mins(s.e) &&
                 mins(s.t) < mins(o.e),
             );
-          return `<li class="mrow ${marks[s.id]}" style="${cvar(s.tr)}"><time>${fmt(s.t)}<span>${fmt(s.e)}</span></time><div class="mbody"><button class="title tlink" id="db-${s.id}" data-detail="${s.id}" title="Show details">${esc(s.title)}</button><span class="sp">${esc(s.sp)}</span><span class="meta"><span class="chip">${esc(s.tr === "M" || s.tr === "Z" ? s.fmt : TRACKS[s.tr])}</span><span class="chip${s.room.startsWith("Hyatt") ? " hyatt" : " plain"}">${esc(s.room)}</span>${clash ? `<span class="chip clashchip">Overlaps another talk</span>` : ""}</span></div><div class="side">${markBtns(s)}</div>${hasNotes(s.id) ? notesHTML(pend[s.id] ? pend[s.id].text : notes[s.id]) : ""}</li>`;
+          return `<li class="mrow ${marks[s.id]}" style="${cvar(s.tr)}"><time>${fmt(s.t)}<span>${fmt(s.e)}</span></time><div class="mbody"><button class="title tlink" id="db-${s.id}" data-detail="${s.id}" title="Show details">${esc(s.title)}</button><span class="sp">${esc(s.sp)}</span><span class="meta"><span class="chip">${esc(s.tr === "M" || s.tr === "Z" ? s.fmt : TRACKS[s.tr])}</span><span class="chip${s.room.startsWith("Hyatt") ? " hyatt" : " plain"}">${esc(s.room)}</span>${clash ? `<span class="chip clashchip">Overlaps another talk</span>` : ""}</span></div><div class="side">${markBtns(s)}</div>${hasNotes(s.id) ? notesHTML(notes[s.id]) : ""}</li>`;
         })
         .join("")}</ol></section>`;
     }).join("");
@@ -407,14 +545,14 @@ document.getElementById("list").addEventListener("click", (e) => {
     return;
   }
   const b = e.target.closest("button.mk");
-  if (!b || !signedIn) return;
+  if (!b || !ready) return;
   const id = b.dataset.id,
     m = b.dataset.m;
   if (marks[id] === m) delete marks[id];
   else marks[id] = m;
   if (marks[id] && BYID[id]) resetStrip = BYID[id].t;
   render();
-  save();
+  queueSave(id, 0);
 });
 document.getElementById("trackChips")?.addEventListener("click", (e) => {
   const b = e.target.closest("button");
@@ -445,7 +583,7 @@ document.getElementById("tabs").addEventListener("click", (e) => {
   }
   const b = e.target.closest("button[data-tab]");
   if (!b) return;
-  if (b.dataset.tab === "mine" && !signedIn) return;
+  if (b.dataset.tab === "mine" && !ready) return;
   tab = b.dataset.tab;
   hashRead = true;
   try {
@@ -460,29 +598,22 @@ window.addEventListener("hashchange", () => {
   window.scrollTo(0, 0);
 });
 
-// ---------- notes (kept in this browser, one entry per talk) ----------
-let notesCol = null,
-  notesReady = false,
-  notesErr = "";
-const notes = {}; // id -> saved text
-const pend = {}; // id -> {timer, writing, dirty, text, state}
+// ---------- notes (one per talk, saved with the talk's item) ----------
+const notes = {}; // id -> text
 let openId = null;
+let noteTimer = null;
 
 function notesStatus(id) {
-  const p = pend[id];
-  if (!notesCol)
-    return {
-      cls: "err",
-      text: notesErr || "Notes can’t be saved in this browser",
-    };
-  if (!p)
-    return notes[id]
-      ? { cls: "ok", text: "Saved in this browser" }
-      : { cls: "", text: "Notes save in this browser as you type" };
-  return {
-    cls: p.state === "ok" ? "ok" : p.state === "err" ? "err" : "busy",
-    text: p.msg,
-  };
+  if (!ready) return { cls: "err", text: "Sign in to take notes" };
+  if (dirty.has(id) || saving || saveError) return syncState();
+  return notes[id]
+    ? {
+        cls: "ok",
+        text: savedAt
+          ? `Saved · ${clockTime(savedAt)}`
+          : "Saved to your account",
+      }
+    : { cls: "", text: "Notes save to your account as you type" };
 }
 function paintStatus() {
   if (!openId) return;
@@ -492,120 +623,31 @@ function paintStatus() {
   el.textContent = st.text;
 }
 function hasNotes(id) {
-  const p = pend[id];
-  const t = p ? p.text : notes[id];
+  const t = notes[id];
   return !!(t && t.trim());
 }
-
-function scheduleNote(id, text) {
-  const p =
-    pend[id] ||
-    (pend[id] = {
-      timer: null,
-      writing: false,
-      dirty: false,
-      text: "",
-      state: "busy",
-      msg: "",
-    });
-  p.text = text;
-  p.dirty = true;
-  p.state = "busy";
-  p.msg = "Not saved yet…";
-  clearTimeout(p.timer);
-  p.timer = setTimeout(() => flushNote(id), 800);
-  paintStatus();
-}
-async function flushNote(id, attempt = 0) {
-  const p = pend[id];
-  if (!p || !notesCol || p.writing || !p.dirty) return;
-  p.writing = true;
-  p.dirty = false;
-  const text = p.text;
-  p.msg = "Saving…";
-  paintStatus();
-  try {
-    const ref = notesCol.doc(id);
-    if (text.trim())
-      await ref.set({ text, talk: id, updatedAt: new Date().toISOString() });
-    else await ref.delete();
-    if (text.trim()) notes[id] = text;
-    else delete notes[id];
-    p.writing = false;
-    if (p.dirty) {
-      flushNote(id);
-      return;
-    }
-    const t = new Date();
-    p.state = "ok";
-    p.msg = `Saved in this browser · ${t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
-    paintStatus();
+function noteInput(id, text) {
+  if (text.trim()) notes[id] = text;
+  else delete notes[id];
+  dirty.add(id);
+  paintSync();
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => {
+    queueSave(id, 0);
     render();
-  } catch (e) {
-    p.writing = false;
-    p.dirty = true;
-    const code = e && e.code;
-    if (
-      (code === "unavailable" || code === "resource_exhausted") &&
-      attempt < 6
-    ) {
-      p.state = "busy";
-      p.msg = "Not saved yet · retrying";
-      paintStatus();
-      setTimeout(
-        () => flushNote(id, attempt + 1),
-        1500 * (attempt + 1) + Math.random() * 1000,
-      );
-    } else {
-      p.state = "err";
-      p.msg =
-        code === "quota_exceeded"
-          ? "Not saved: browser storage is full"
-          : "Not saved. Your text is still here; keep this panel open and try again";
-      paintStatus();
-    }
-  }
-}
-function anyUnsaved() {
-  return Object.values(pend).some((p) => p.dirty || p.writing);
+  }, 800);
 }
 window.addEventListener("beforeunload", (e) => {
-  if (anyUnsaved()) {
+  if (dirty.size || saving) {
+    flush();
     e.preventDefault();
     e.returnValue = "";
   }
 });
 
-const NOTES_KEY = "kc-notes";
-function startNotes() {
-  try {
-    Object.assign(notes, JSON.parse(localStorage.getItem(NOTES_KEY) || "{}"));
-  } catch (e) {}
-  const persist = () => {
-    try {
-      localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
-    } catch (e) {
-      throw { code: "quota_exceeded" };
-    }
-  };
-  notesCol = {
-    doc: (id) => ({
-      set: async (v) => {
-        notes[id] = v.text;
-        persist();
-      },
-      delete: async () => {
-        delete notes[id];
-        persist();
-      },
-    }),
-  };
-  notesReady = true;
-}
-
 function openNotes(id) {
   const s = BYID[id];
-  if (!signedIn || (!s && id !== "general")) return;
+  if (!ready || (!s && id !== "general")) return;
   openId = id;
   if (s) {
     const day = DAYS.find((d) => d.k === s.day);
@@ -621,8 +663,8 @@ function openNotes(id) {
       "KubeCon + CloudNativeCon NA 2026 · Salt Lake City · Nov 10–12";
   }
   const ta = document.getElementById("npText");
-  ta.value = pend[id] ? pend[id].text : notes[id] || "";
-  ta.disabled = !notesCol || !notesReady;
+  ta.value = notes[id] || "";
+  ta.disabled = !ready;
   const panel = document.getElementById("notesPanel");
   panel.hidden = false;
   document.body.classList.add("np-open");
@@ -683,10 +725,9 @@ function closeDetails(silent) {
 function closeNotes() {
   if (!openId) return;
   const id = openId;
-  const p = pend[id];
-  if (p && p.dirty) {
-    clearTimeout(p.timer);
-    flushNote(id);
+  if (dirty.has(id)) {
+    clearTimeout(noteTimer);
+    flush();
   }
   // drop a lone "- " starter that was never typed into
   openId = null;
@@ -857,7 +898,7 @@ function notesHTML(text) {
 // --- export everything as Markdown ---
 function exportMarkdown() {
   const L = ["# KubeCon NA 2026: my talks and notes", ""];
-  const gt = (pend.general ? pend.general.text : notes.general) || "";
+  const gt = notes.general || "";
   if (gt.trim()) L.push("## General notes", "", gt.trimEnd(), "");
   DAYS.forEach((d) => {
     const ss = d.S.filter((s) => marks[s.id] || hasNotes(s.id)).sort(
@@ -877,7 +918,7 @@ function exportMarkdown() {
         `*${m}* · ${s.room} · ${s.sp}`,
         "",
       );
-      const t = (pend[s.id] ? pend[s.id].text : notes[s.id]) || "";
+      const t = notes[s.id] || "";
       if (t.trim()) L.push(t.trimEnd(), "");
     });
   });
@@ -909,7 +950,7 @@ async function doCopy() {
 }
 document.getElementById("npText").addEventListener("keydown", onNoteKey);
 document.getElementById("npText").addEventListener("input", (e) => {
-  if (openId) scheduleNote(openId, e.target.value);
+  if (openId) noteInput(openId, e.target.value);
 });
 document.getElementById("npClose").addEventListener("click", closeNotes);
 document
@@ -946,7 +987,6 @@ document.getElementById("npToDetails").addEventListener("click", () => {
 document.getElementById("exportBtn").addEventListener("click", doExport);
 document.getElementById("copyBtn").addEventListener("click", doCopy);
 
-startNotes();
 applyAuth();
 render();
 startAuth();

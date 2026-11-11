@@ -6,8 +6,18 @@ Schedule planners for conferences I attend, published with GitHub Pages.
 
 Each conference is a static page under its own sub path, built with Vite.
 The schedule is public. Marking talks, notes and "My talks" need sign-in
-(Auth0, `tridnguyen.auth0.com`). Marks and notes are still saved in the browser
-(localStorage) only.
+(Auth0, `tridnguyen.auth0.com`). Marks and notes are saved in the
+[lists API](https://github.com/tnguyen14/lists): one list per conference
+(`conf/kubecon-na-2026`), one item per talk with a mark or a note:
+
+```json
+{ "id": "1246200", "mark": "go", "note": "- …", "updatedAt": "…" }
+```
+
+`id` is the Sessionize session ID, or `general` for general notes. `mark` is
+`go`, `later` or `null`. Each conference's list has to exist before use (lists
+are created by a super admin), and the lists API must allow this site's origin
+(CORS).
 
 ## Auth setup
 
