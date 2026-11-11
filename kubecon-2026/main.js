@@ -6,6 +6,7 @@ import "@fontsource/archivo/800.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "@fontsource/jetbrains-mono/700.css";
 import "./style.css";
+import { initAuth } from "../lib/auth.js";
 import {
   KEY_TUE,
   S_TUE,
@@ -105,6 +106,55 @@ const saveLocal = () => {
 function save() {
   saveLocal();
 }
+
+// ---------- sign-in ----------
+// The schedule is public. Marking talks, notes and "My talks" need sign-in.
+let signedIn = false;
+let auth = null;
+function setSync(cls, text) {
+  const el = document.getElementById("sync");
+  el.className = "sync " + cls;
+  el.textContent = text;
+}
+function applyAuth() {
+  document.body.classList.toggle("signed-in", signedIn);
+  const btn = document.getElementById("authBtn");
+  btn.hidden = !auth;
+  btn.textContent = signedIn ? "Sign out" : "Sign in";
+  if (!signedIn) {
+    view = "all";
+    if (openId) closeNotes();
+  }
+}
+async function startAuth() {
+  setSync("busy", "Checking sign-in…");
+  try {
+    auth = await initAuth();
+  } catch (e) {
+    console.error("Sign-in check failed", e);
+    auth = null;
+    setSync("err", "Couldn’t check sign-in · reload to try again");
+    return;
+  }
+  signedIn = !!auth.user;
+  if (signedIn) {
+    const who = auth.user.name || auth.user.email || "you";
+    setSync(
+      "ok",
+      `Signed in as ${who} · marks and notes are saved in this browser`,
+    );
+  } else {
+    setSync("", "Sign in to mark talks and take notes");
+  }
+  applyAuth();
+  readHash();
+  render();
+}
+document.getElementById("authBtn").addEventListener("click", () => {
+  if (!auth) return;
+  if (signedIn) auth.logout();
+  else auth.login();
+});
 const mins = (t) => {
   const [h, m] = t.split(":").map(Number);
   return h * 60 + m;
@@ -150,7 +200,10 @@ function defaultTab() {
 }
 function readHash() {
   const h = location.hash.slice(1);
-  tab = DAYS.some((d) => d.k === h) || h === "mine" ? h : defaultTab();
+  tab =
+    DAYS.some((d) => d.k === h) || (h === "mine" && signedIn)
+      ? h
+      : defaultTab();
 }
 
 function tabs() {
@@ -366,7 +419,7 @@ document.getElementById("list").addEventListener("click", (e) => {
     return;
   }
   const b = e.target.closest("button.mk");
-  if (!b) return;
+  if (!b || !signedIn) return;
   const id = b.dataset.id,
     m = b.dataset.m;
   if (marks[id] === m) delete marks[id];
@@ -404,6 +457,7 @@ document.getElementById("tabs").addEventListener("click", (e) => {
   }
   const b = e.target.closest("button[data-tab]");
   if (!b) return;
+  if (b.dataset.tab === "mine" && !signedIn) return;
   tab = b.dataset.tab;
   hashRead = true;
   try {
@@ -563,7 +617,7 @@ function startNotes() {
 
 function openNotes(id) {
   const s = BYID[id];
-  if (!s && id !== "general") return;
+  if (!signedIn || (!s && id !== "general")) return;
   openId = id;
   if (s) {
     const day = DAYS.find((d) => d.k === s.day);
@@ -905,7 +959,9 @@ document.getElementById("exportBtn").addEventListener("click", doExport);
 document.getElementById("copyBtn").addEventListener("click", doCopy);
 
 startNotes();
+applyAuth();
 render();
+startAuth();
 const nw = document.querySelector(".slot.now");
 if (nw) setTimeout(() => nw.scrollIntoView({ block: "center" }), 50);
 setInterval(render, 60000);

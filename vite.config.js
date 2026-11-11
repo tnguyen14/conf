@@ -5,6 +5,9 @@ import { defineConfig } from "vite";
 // BASE_PATH is set in CI to the GitHub Pages path.
 export default defineConfig({
   base: process.env.BASE_PATH || "/",
+  // 5173 is used by the lists UI; keep conf on its own port.
+  server: { port: 4005, strictPort: true },
+  preview: { port: 4005, strictPort: true },
   build: {
     rollupOptions: {
       input: {
